@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.Snowdropy" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">#0B1E3F</item>
+        <item name="colorPrimary">#A8DCFF</item>
+        <item name="android:windowBackground">@drawable/bg_gradient</item>
+    </style>
+</resources>
