@@ -19,6 +19,7 @@ class SnowView @JvmOverloads constructor(
 
     private val flakes = ArrayList<Flake>()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val capPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var last = 0L
     private var t = 0f
 
@@ -27,6 +28,15 @@ class SnowView @JvmOverloads constructor(
     var speed = 1f
     var sizeScale = 1f
     var flakeColor = 0xFFFFFFFF.toInt()
+
+    /** Frame rate cap (battery saver). */
+    var fps = 30
+
+    /** Snow cap that sits on top of the status-bar battery icon. */
+    var capOn = true
+    var capXdp = 22f   // distance from right edge to cap centre
+    var capYdp = 8f    // y of the cap's base (top of battery icon)
+    var capWdp = 26f   // cap width
 
     private fun newFlake(randomY: Boolean): Flake {
         val d = resources.displayMetrics.density
@@ -57,7 +67,7 @@ class SnowView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         val now = System.nanoTime()
-        val dt = if (last == 0L) 0.016f else ((now - last) / 1e9f).coerceAtMost(0.05f)
+        val dt = if (last == 0L) 0.016f else ((now - last) / 1e9f).coerceAtMost(0.1f)
         last = now
         t += dt
         val h = height.toFloat()
@@ -69,12 +79,39 @@ class SnowView @JvmOverloads constructor(
                 f.amp = n.amp; f.phase = n.phase; f.alpha = n.alpha
             }
             val dx = sin(t * 0.8f * speed + f.phase) * f.amp
-            val rr = f.r * sizeScale
             paint.color = flakeColor
             paint.alpha = f.alpha
-            canvas.drawCircle(f.x + dx, f.y, rr, paint)
+            canvas.drawCircle(f.x + dx, f.y, f.r * sizeScale, paint)
         }
-        postInvalidateOnAnimation()
+        if (capOn) drawCap(canvas)
+
+        // frame cap: wait for the rest of the frame budget instead of redrawing at once
+        val elapsedMs = (System.nanoTime() - now) / 1_000_000
+        val delay = (1000L / fps.coerceIn(10, 60) - elapsedMs).coerceAtLeast(1)
+        postInvalidateDelayed(delay)
+    }
+
+    private fun drawCap(c: Canvas) {
+        val d = resources.displayMetrics.density
+        val w = capWdp * d
+        val h = w * 0.34f
+        val cx = width - capXdp * d
+        val base = capYdp * d
+        mound(c, cx, base, w, h, 0xFFB9D6F0.toInt(), 1.3f * d)  // soft shade
+        mound(c, cx, base, w, h, 0xFFFFFFFF.toInt(), 0f)        // snow
+    }
+
+    private fun mound(c: Canvas, cx: Float, base: Float, w: Float, h: Float, color: Int, dy: Float) {
+        capPaint.color = color
+        c.drawCircle(cx - w * 0.27f, base - h * 0.35f + dy, h * 0.50f, capPaint)
+        c.drawCircle(cx + w * 0.02f, base - h * 0.45f + dy, h * 0.62f, capPaint)
+        c.drawCircle(cx + w * 0.30f, base - h * 0.30f + dy, h * 0.42f, capPaint)
+        c.drawRoundRect(
+            cx - w / 2, base - h * 0.30f + dy, cx + w / 2, base + h * 0.12f + dy,
+            h * 0.15f, h * 0.15f, capPaint
+        )
+        c.drawCircle(cx - w * 0.30f, base + h * 0.15f + dy, h * 0.14f, capPaint) // drips
+        c.drawCircle(cx + w * 0.12f, base + h * 0.20f + dy, h * 0.10f, capPaint)
     }
 
     override fun onDetachedFromWindow() {

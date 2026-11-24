@@ -5,12 +5,17 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.IBinder
+import android.os.PowerManager
 import android.view.WindowManager
+import androidx.core.content.ContextCompat
 
 class SnowService : Service() {
 
@@ -19,12 +24,32 @@ class SnowService : Service() {
         const val ACTION_STOP = "com.riox.snowdropy.STOP"
         private const val CHANNEL = "snowdropy"
         private const val NOTIF_ID = 1
+        private const val NOTIF_PAUSED = 2
     }
 
     private var wm: WindowManager? = null
     private var view: SnowView? = null
+    private var receiverOn = false
+
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { p, _ ->
         view?.applyPrefs(p)
+    }
+
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context, intent: Intent) {
+            val reason = Prefs.pauseReason(ctx) ?: return
+            val nm = ctx.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(
+                NOTIF_PAUSED,
+                Notification.Builder(ctx, CHANNEL)
+                    .setSmallIcon(R.drawable.ic_snowflake)
+                    .setContentTitle("Snow paused to save battery")
+                    .setContentText(reason)
+                    .setAutoCancel(true)
+                    .build()
+            )
+            stopSelf()
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -39,6 +64,14 @@ class SnowService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         )
         if (view == null) addOverlay()
+        if (!receiverOn) {
+            val f = IntentFilter().apply {
+                addAction(Intent.ACTION_BATTERY_CHANGED)
+                addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+            }
+            ContextCompat.registerReceiver(this, batteryReceiver, f, ContextCompat.RECEIVER_NOT_EXPORTED)
+            receiverOn = true
+        }
         running = true
         return START_STICKY
     }
@@ -88,6 +121,8 @@ class SnowService : Service() {
 
     override fun onDestroy() {
         Prefs.get(this).unregisterOnSharedPreferenceChangeListener(listener)
+        if (receiverOn) runCatching { unregisterReceiver(batteryReceiver) }
+        receiverOn = false
         view?.let { runCatching { wm?.removeView(it) } }
         view = null
         running = false

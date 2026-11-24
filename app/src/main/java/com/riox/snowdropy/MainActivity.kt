@@ -7,13 +7,18 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.slider.Slider
+import com.google.android.material.materialswitch.MaterialSwitch
 
 class MainActivity : AppCompatActivity() {
 
@@ -23,7 +28,16 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // draw behind the status bar so the snow cap can be lined up with the real battery icon
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
+
+        val scroll = findViewById<View>(R.id.scroll)
+        ViewCompat.setOnApplyWindowInsetsListener(scroll) { v, insets ->
+            val b = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(0, b.top, 0, b.bottom)
+            insets
+        }
 
         val prefs = Prefs.get(this)
         preview = findViewById(R.id.preview)
@@ -34,6 +48,13 @@ class MainActivity : AppCompatActivity() {
         bindSlider(R.id.slDensity, R.id.tvDensity, Prefs.DENSITY, 60, "Snow amount") { "$it" }
         bindSlider(R.id.slSpeed, R.id.tvSpeed, Prefs.SPEED, 10, "Fall speed") { "%.1fx".format(it / 10f) }
         bindSlider(R.id.slSize, R.id.tvSize, Prefs.SIZE, 10, "Flake size") { "%.1fx".format(it / 10f) }
+        bindSlider(R.id.slCapX, R.id.tvCapX, Prefs.CAP_X, 22, "Cap position (from right)") { "$it dp" }
+        bindSlider(R.id.slCapY, R.id.tvCapY, Prefs.CAP_Y, 8, "Cap height (from top)") { "$it dp" }
+        bindSlider(R.id.slCapW, R.id.tvCapW, Prefs.CAP_W, 26, "Cap width") { "$it dp" }
+
+        bindSwitch(R.id.swLow, Prefs.LOW_POWER, false)
+        bindSwitch(R.id.swAuto, Prefs.AUTO_STOP, true)
+        bindSwitch(R.id.swCap, Prefs.CAP_ON, true)
 
         val group = findViewById<MaterialButtonToggleGroup>(R.id.colorGroup)
         val ids = intArrayOf(R.id.c0, R.id.c1, R.id.c2)
@@ -57,6 +78,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun bindSwitch(id: Int, key: String, def: Boolean) {
+        val prefs = Prefs.get(this)
+        val s = findViewById<MaterialSwitch>(id)
+        s.isChecked = prefs.getBoolean(key, def)
+        s.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean(key, checked).apply()
+            preview.applyPrefs(prefs)
+        }
+    }
+
     private fun bindSlider(
         sliderId: Int, labelId: Int, key: String, def: Int,
         title: String, fmt: (Int) -> String
@@ -65,7 +96,7 @@ class MainActivity : AppCompatActivity() {
         val s = findViewById<Slider>(sliderId)
         val l = findViewById<TextView>(labelId)
         val v = prefs.getInt(key, def)
-        s.value = v.toFloat()
+        s.value = v.toFloat().coerceIn(s.valueFrom, s.valueTo)
         l.text = "$title  •  ${fmt(v)}"
         s.addOnChangeListener { _, value, fromUser ->
             val iv = value.toInt()
@@ -83,6 +114,13 @@ class MainActivity : AppCompatActivity() {
             startActivity(
                 Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
             )
+            return
+        }
+        Prefs.pauseReason(this)?.let {
+            Toast.makeText(
+                this, "$it. Snow stays off. (Turn off \"Auto-stop\" to run anyway)",
+                Toast.LENGTH_LONG
+            ).show()
             return
         }
         ContextCompat.startForegroundService(this, Intent(this, SnowService::class.java))
